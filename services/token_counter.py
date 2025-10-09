@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable
+from typing import Any, Iterable
 
 try:
     import tiktoken
@@ -15,9 +15,39 @@ def _estimate_tokens_from_chars(text: str) -> int:
     return max(1, math.ceil(len(text) / 4))
 
 
-def count_prompt_tokens(model: str, messages: Iterable[dict[str, str]]) -> int:
+def _message_text(message: dict[str, Any]) -> str:
+    """Extract a text representation from various message content formats."""
+
+    content = message.get("content", "")
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text_value = item.get("text")
+                if text_value is not None:
+                    parts.append(str(text_value))
+                elif "content" in item:
+                    parts.append(str(item["content"]))
+                else:
+                    parts.append(str(item))
+            else:
+                parts.append(str(item))
+        return "\n".join(parts)
+
+    return str(content)
+
+
+def count_prompt_tokens(model: str, messages: Iterable[dict[str, Any]]) -> int:
+    message_texts = [_message_text(message) for message in messages]
+
     if tiktoken is None:
-        return sum(_estimate_tokens_from_chars(message.get("content", "")) for message in messages)
+        return sum(_estimate_tokens_from_chars(text) for text in message_texts)
 
     try:
         encoding = tiktoken.encoding_for_model(model)
@@ -25,8 +55,8 @@ def count_prompt_tokens(model: str, messages: Iterable[dict[str, str]]) -> int:
         encoding = tiktoken.get_encoding("cl100k_base")
 
     total = 0
-    for message in messages:
-        total += len(encoding.encode(message.get("content", "")))
+    for text in message_texts:
+        total += len(encoding.encode(text))
     return total
 
 
