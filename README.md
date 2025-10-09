@@ -491,6 +491,9 @@ venv/
 
 ### 2. .env 파일 생성
 - 실제 API 키 입력 필요
+- 외부 공개가 필요하면 `ENABLE_NGROK=true` 설정 (선택)
+- ngrok 인증 토큰이 있다면 `NGROK_AUTHTOKEN=...` 로 추가 (선택)
+- 특정 리전을 사용하려면 `NGROK_REGION=ap` 과 같이 지정 (선택)
 
 ### 3. 서버 실행
 - `python main.py` 실행
@@ -500,8 +503,9 @@ venv/
 - 헬스체크: http://localhost:8000/health
 
 ### 5. ngrok으로 외부 접속
-- 새 터미널에서 `ngrok http 8000` 실행
-- 생성된 URL을 프론트엔드에서 사용
+- `.env`에 `ENABLE_NGROK=true`를 설정하고 `python main.py` 실행
+- 콘솔에 출력되는 ngrok URL을 프론트엔드에서 사용
+- 수동으로 실행하려면 기존 방식대로 `ngrok http 8000`을 별도 터미널에서 실행해도 됨
 
 ---
 
