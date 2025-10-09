@@ -27,6 +27,7 @@ ai_openapi_BE/
 │
 ├── main.py                      # FastAPI 앱 + 라우터 등록
 ├── requirements.txt             # 패키지 목록
+├── .env.example                 # 실행을 위한 환경 변수 템플릿
 ├── .env                         # API 키 (Git 제외)
 ├── .gitignore                   # Git 제외 파일
 │
@@ -96,6 +97,8 @@ ALLOWED_ORIGINS=https://ai-modelhub-platform.vercel.app,http://localhost:5173
 PORT=8000
 DEBUG=True
 ```
+
+> ℹ️ **TIP**: 저장소에는 비밀값이 제거된 `.env.example` 파일이 포함되어 있습니다. 이 파일을 복사해 `.env`로 이름을 변경한 뒤 각 API 키와 설정 값을 채워 넣으면 됩니다.
 
 ---
 
