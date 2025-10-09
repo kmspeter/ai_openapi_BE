@@ -8,7 +8,7 @@
       "currency": "USD"
     }
   },
-  "claude-3-sonnet-20240229": {
+  "claude-3-7-sonnet-20250219": {
     "provider": "anthropic",
     "max_output_tokens": 4096,
     "pricing": {
@@ -17,7 +17,7 @@
       "currency": "USD"
     }
   },
-  "gemini-1.5-pro-latest": {
+  "gemini-2.5-flash": {
     "provider": "google",
     "max_output_tokens": 8192,
     "pricing": {

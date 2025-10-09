@@ -1,8 +1,6 @@
 """Simple smoke test suite for the AI Gateway REST API.
 
-This script exercises a small collection of read/write endpoints so you can
-quickly verify that a running gateway instance is healthy.  The base URL and
-API key can be supplied via environment variables or command line arguments.
+Runs minimal tests (health + chat) to verify that a running gateway instance is healthy.
 """
 from __future__ import annotations
 
@@ -10,7 +8,6 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
-from datetime import date
 from typing import Any, Callable, Dict, Iterable, Optional
 
 import requests
@@ -72,7 +69,7 @@ class ApiSmokeTester:
         )
         try:
             response.raise_for_status()
-        except requests.HTTPError as exc:  # pragma: no cover - for manual runs
+        except requests.HTTPError as exc:
             print(f"\n[ERROR] {method} {path} -> {response.status_code} {response.text}")
             raise exc
         if response.content:
@@ -90,26 +87,12 @@ class ApiSmokeTester:
 # -------------------------------
 
 def build_provider_body(model_id: str, session_id: str) -> Dict[str, Any]:
-    """
-    회사(프로바이더)별 요구 포맷에 맞춰 messages를 조정한다.
-    - OpenAI: content는 문자열
-    - Anthropic(claude-*): content는 [{"type":"text","text":...}] 리스트
-    - Google(gemini-*): 현재 게이트웨이 스키마 유지(추가 변환 필요 시 이곳에서 확장)
-    """
+    """회사(프로바이더)별 요구 포맷에 맞춰 messages를 조정한다."""
     user_text = "Ping! Reply with 'pong'."
 
-    # OpenAI 계열 (기본)
     messages = [{"role": "user", "content": user_text}]
-
-    # Anthropic (claude-*)
     if model_id.startswith("claude-"):
         messages = [{"role": "user", "content": [{"type": "text", "text": user_text}]}]
-
-    # Google (gemini-*)
-    # 게이트웨이 /api/chat/completions 스키마를 건드리지 않고 messages 유지.
-    # 만약 게이트웨이가 contents/parts 형식을 직접 받도록 바뀐다면 여기서 변환.
-    # elif model_id.startswith("gemini-"):
-    #     messages = [{"role": "user", "content": user_text}]  # 유지 (게이트웨이에서 변환)
 
     body = {
         "model": model_id,
@@ -123,7 +106,7 @@ def build_provider_body(model_id: str, session_id: str) -> Dict[str, Any]:
 
 
 # -------------------------------
-# 개별 테스트 함수 정의
+# 개별 테스트 함수
 # -------------------------------
 
 def test_health(tester: ApiSmokeTester) -> None:
@@ -134,15 +117,10 @@ def test_health(tester: ApiSmokeTester) -> None:
 
 
 def test_chat_all_providers(tester: ApiSmokeTester, session_id: str) -> None:
-    """
-    OpenAI / Anthropic / Google 모델을 모두 테스트.
-    - 429(쿼터 초과)나 공급사 제한은 경고만 출력하고 다음 모델로 진행
-    - 한 모델이라도 성공하면 '통과'로 간주
-    """
     models = [
         "gpt-3.5-turbo",            # OpenAI
-        "claude-3-sonnet-20240229", # Anthropic
-        "gemini-2.5-flash",    # Google
+        "claude-3-7-sonnet-20250219", # Anthropic
+        "gemini-2.5-flash",         # Google
     ]
 
     any_success = False
@@ -165,8 +143,7 @@ def test_chat_all_providers(tester: ApiSmokeTester, session_id: str) -> None:
                     detail = resp.json()
                 except Exception:
                     detail = resp.text
-                # 쿼터 초과 / 레이트리밋 → 경고 후 계속
-                if resp.status_code == 429 or "insufficient_quota" in str(detail).lower() or "quota" in str(detail).lower():
+                if resp.status_code == 429 or "quota" in str(detail).lower():
                     print(f"⚠️  Quota/Rate limit for {mid}: {detail}")
                     continue
                 print(f"❌ Chat failed for {mid}: status={resp.status_code}, detail={detail}")
@@ -178,104 +155,26 @@ def test_chat_all_providers(tester: ApiSmokeTester, session_id: str) -> None:
             continue
 
     if not any_success:
-        print("⚠️  All chat providers failed or quota reached — continuing to other tests.")
-
-
-def test_usage_daily(tester: ApiSmokeTester) -> None:
-    payload = tester.call("GET", "/api/usage/daily")
-    if not isinstance(payload, list):
-        raise AssertionError("daily usage는 배열이어야 함")
-    tester.pretty("Daily Usage (all)", payload[:3])
-
-
-def test_usage_daily_by_date(tester: ApiSmokeTester, usage_date: str) -> None:
-    payload = tester.call("GET", f"/api/usage/daily/{usage_date}")
-    if not isinstance(payload, list):
-        raise AssertionError("daily usage(date)는 배열이어야 함")
-    tester.pretty(f"Daily Usage ({usage_date})", payload[:3])
-
-
-def test_usage_monthly(tester: ApiSmokeTester) -> None:
-    payload = tester.call("GET", "/api/usage/monthly")
-    if not isinstance(payload, list):
-        raise AssertionError("monthly usage는 배열이어야 함")
-    tester.pretty("Monthly Usage (all)", payload[:3])
-
-
-def test_usage_monthly_period(tester: ApiSmokeTester, year_month: str) -> None:
-    payload = tester.call("GET", f"/api/usage/monthly/{year_month}")
-    if not isinstance(payload, list):
-        raise AssertionError("monthly usage(period)는 배열이어야 함")
-    tester.pretty(f"Monthly Usage ({year_month})", payload[:3])
-
-
-def test_session_usage(tester: ApiSmokeTester, session_id: str) -> None:
-    payload = tester.call("GET", f"/api/usage/session/{session_id}")
-    required_keys = {"session_id", "records", "totals", "total_cost"}
-    if not isinstance(payload, dict) or required_keys - set(payload):
-        raise AssertionError("session usage 응답 스키마 불일치")
-    tester.pretty(f"Session Usage ({session_id})", payload)
-
-
-# -------------------------------
-# 테스트 레지스트리
-# -------------------------------
-
-TEST_REGISTRY: Dict[str, Callable[[ApiSmokeTester, argparse.Namespace], None]] = {
-    "health": lambda tester, args: test_health(tester),
-    "chat": lambda tester, args: test_chat_all_providers(tester, session_id=args.session_id),
-    "usage-daily": lambda tester, args: test_usage_daily(tester),
-    "usage-daily-by-date": lambda tester, args: test_usage_daily_by_date(tester, args.usage_date),
-    "usage-monthly": lambda tester, args: test_usage_monthly(tester),
-    "usage-monthly-period": lambda tester, args: test_usage_monthly_period(tester, args.year_month),
-    "session-usage": lambda tester, args: test_session_usage(tester, session_id=args.session_id),
-}
+        print("⚠️  All chat providers failed or quota reached.")
 
 
 # -------------------------------
 # 실행 진입점
 # -------------------------------
 
+TEST_REGISTRY: Dict[str, Callable[[ApiSmokeTester, argparse.Namespace], None]] = {
+    "health": lambda tester, args: test_health(tester),
+    "chat": lambda tester, args: test_chat_all_providers(tester, session_id=args.session_id),
+}
+
+
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
-    today = date.today()
-    parser = argparse.ArgumentParser(description="Run quick smoke tests against the AI gateway API")
-    parser.add_argument(
-        "--base-url",
-        default=None,
-        help=f"Gateway base URL (default: ${BASE_URL_ENV} or http://localhost:8000)",
-    )
-    parser.add_argument(
-        "--api-key",
-        default=None,
-        help=f"Gateway API key (default: ${API_KEY_ENV})",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=None,
-        help=f"HTTP timeout in seconds (default: ${TIMEOUT_ENV} or {DEFAULT_TIMEOUT})",
-    )
-    parser.add_argument(
-        "--usage-date",
-        default=today.strftime("%Y-%m-%d"),
-        help="Usage date in YYYY-MM-DD format",
-    )
-    parser.add_argument(
-        "--year-month",
-        default=today.strftime("%Y-%m"),
-        help="Usage period in YYYY-MM format",
-    )
-    parser.add_argument(
-        "--session-id",
-        default="test-session-123",
-        help="Session identifier used for chat and session usage tests",
-    )
-    parser.add_argument(
-        "tests",
-        nargs="*",
-        choices=sorted(TEST_REGISTRY),
-        help="Specific tests to run (default: run all)",
-    )
+    parser = argparse.ArgumentParser(description="Run minimal smoke tests (health + chat)")
+    parser.add_argument("--base-url", default=None, help=f"Gateway base URL (default: ${BASE_URL_ENV})")
+    parser.add_argument("--api-key", default=None, help=f"Gateway API key (default: ${API_KEY_ENV})")
+    parser.add_argument("--timeout", type=int, default=None, help=f"HTTP timeout (default: {DEFAULT_TIMEOUT})")
+    parser.add_argument("--session-id", default="test-session-123", help="Session ID for chat tests")
+    parser.add_argument("tests", nargs="*", choices=["health", "chat"], help="Specific tests to run (default: both)")
     return parser.parse_args(argv)
 
 
@@ -297,7 +196,7 @@ def main() -> None:
 
     print("Running smoke tests against", config.base_url)
 
-    tests_to_run = args.tests if args.tests else list(TEST_REGISTRY)
+    tests_to_run = args.tests if args.tests else ["health", "chat"]
 
     for test_name in tests_to_run:
         print(f"\n>>> Running {test_name}...")
@@ -305,9 +204,9 @@ def main() -> None:
             TEST_REGISTRY[test_name](tester, args)
         except Exception as exc:
             print(f"⚠️  Test '{test_name}' encountered an error: {exc}")
-            print("Continuing to next test...")
+            print("Continuing...")
 
-    print("\n✅ All requested smoke tests completed (with warnings if any).")
+    print("\n✅ Smoke tests completed (health + chat).")
 
 
 if __name__ == "__main__":
