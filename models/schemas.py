@@ -1,14 +1,38 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union, Dict, Any
 
 from pydantic import BaseModel, Field, model_validator
 
 
+# --- Chat Models --------------------------------------------------------------
+
 class ChatMessage(BaseModel):
+    """
+    메시지 포맷:
+      - OpenAI: {"role": "user", "content": "Hello"}
+      - Anthropic: {"role": "user", "content": [{"type": "text", "text": "Hello"}]}
+      - Gemini: {"role": "user", "parts": [{"text": "Hello"}]} (게이트웨이에서 parts→content 변환)
+    """
     role: Literal["system", "user", "assistant"]
-    content: str = Field(..., min_length=1)
+    content: Union[str, List[Dict[str, Any]]] = Field(
+        ...,
+        description="Message content. Supports str or structured list formats."
+    )
+
+    @model_validator(mode="before")
+    def normalize_content(cls, values: Any):
+        # Gemini의 'parts' 필드 → 'content'로 변환
+        if isinstance(values, dict) and "parts" in values and "content" not in values:
+            parts = values.get("parts", [])
+            if isinstance(parts, list) and parts and isinstance(parts[0], dict) and "text" in parts[0]:
+                values["content"] = [{"type": "text", "text": parts[0]["text"]}]
+            elif isinstance(parts, list) and parts and isinstance(parts[0], str):
+                values["content"] = [{"type": "text", "text": parts[0]}]
+            else:
+                values["content"] = [{"type": "text", "text": str(parts)}]
+        return values
 
 
 class ChatCompletionRequest(BaseModel):
@@ -26,6 +50,8 @@ class ChatCompletionRequest(BaseModel):
             raise ValueError("At least one user message is required")
         return self
 
+
+# --- Response Schemas --------------------------------------------------------
 
 class UsageBreakdown(BaseModel):
     prompt_tokens: int
