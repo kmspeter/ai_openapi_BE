@@ -19,6 +19,10 @@ class Config(BaseSettings):
 
     port: int = Field(default=8000, alias="PORT")
     debug: bool = Field(default=False, alias="DEBUG")
+    
+    enable_ngrok: bool = Field(default=False, alias="ENABLE_NGROK")
+    ngrok_authtoken: Optional[str] = Field(default=None, alias="NGROK_AUTHTOKEN")
+    ngrok_region: Optional[str] = Field(default=None, alias="NGROK_REGION")
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 

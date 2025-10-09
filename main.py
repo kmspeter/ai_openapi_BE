@@ -49,6 +49,34 @@ async def health_check() -> HealthStatus:
 
 
 if __name__ == "__main__":
+    import atexit
+    from typing import Optional
+
     import uvicorn
+
+    tunnel_url: Optional[str] = None
+
+    if settings.enable_ngrok:
+        from pyngrok import conf, ngrok
+
+        if settings.ngrok_authtoken:
+            ngrok.set_auth_token(settings.ngrok_authtoken)
+
+        if settings.ngrok_region:
+            conf.get_default().region = settings.ngrok_region
+
+        tunnel = ngrok.connect(settings.port, bind_tls=True)
+        tunnel_url = tunnel.public_url
+        print(
+            f" * ngrok tunnel available at {tunnel_url} -> http://127.0.0.1:{settings.port}",
+            flush=True,
+        )
+
+        def _stop_ngrok() -> None:
+            if tunnel_url:
+                ngrok.disconnect(tunnel_url)
+            ngrok.kill()
+
+        atexit.register(_stop_ngrok)
 
     uvicorn.run("main:app", host="0.0.0.0", port=settings.port, reload=settings.debug)
