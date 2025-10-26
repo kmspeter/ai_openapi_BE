@@ -79,6 +79,7 @@ class ChatCompletionResponse(BaseModel):
 class SessionUsageRecord(BaseModel):
     session_id: str
     user_id: Optional[str]
+    usage_date: date
     provider: str
     model_id: str
     prompt_tokens: int

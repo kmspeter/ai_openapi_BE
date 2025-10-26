@@ -20,6 +20,7 @@ class SessionUsage(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String, index=True)
     user_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    usage_date: Mapped[Date] = mapped_column(Date, nullable=False, index=True)
     provider: Mapped[str] = mapped_column(String, index=True)
     model_id: Mapped[str] = mapped_column(String, index=True)
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -30,6 +30,7 @@ async def get_session_usage(session_id: str) -> SessionUsageResponse:
         SessionUsageRecord(
             session_id=record.session_id,
             user_id=record.user_id,
+            usage_date=record.usage_date,
             provider=record.provider,
             model_id=record.model_id,
             prompt_tokens=record.prompt_tokens,
@@ -53,6 +54,42 @@ async def get_session_usage(session_id: str) -> SessionUsageResponse:
     total_cost = round(sum(record.total_cost for record in pydantic_records), 6)
 
     return SessionUsageResponse(session_id=session_id, records=pydantic_records, totals=totals, total_cost=total_cost)
+
+
+@router.get("/user/{user_id}", response_model=List[DailyUsageResponse])
+async def get_user_daily_usage(
+    user_id: str,
+    start_date: Optional[date] = Query(default=None),
+    end_date: Optional[date] = Query(default=None),
+    provider: Optional[str] = Query(default=None),
+    model_id: Optional[str] = Query(default=None),
+) -> List[DailyUsageResponse]:
+    async with async_session_factory() as session:
+        entries = await usage_tracker.get_user_daily_usage(
+            session,
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            provider=provider,
+            model_id=model_id,
+        )
+
+    if not entries:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User usage not found")
+
+    return [
+        DailyUsageResponse(
+            date=entry.date,
+            provider=entry.provider,
+            model_id=entry.model_id,
+            prompt_tokens=entry.prompt_tokens,
+            completion_tokens=entry.completion_tokens,
+            total_tokens=entry.total_tokens,
+            total_cost=round(entry.total_cost, 6),
+            request_count=entry.request_count,
+        )
+        for entry in entries
+    ]
 
 
 @router.get("/daily", response_model=List[DailyUsageResponse])
