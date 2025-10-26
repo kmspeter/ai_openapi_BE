@@ -23,6 +23,7 @@ async def track_usage(
     total_cost: float,
     currency: str,
     db_session: Optional[AsyncSession] = None,
+    usage_datetime: Optional[datetime] = None,
 ) -> None:
     close_session = False
     if db_session is None:
@@ -30,13 +31,14 @@ async def track_usage(
         close_session = True
 
     total_tokens = prompt_tokens + completion_tokens
-    now = datetime.now(UTC)
+    now = usage_datetime or datetime.now(UTC)
     usage_date = now.date()
     year_month = f"{usage_date.year:04d}-{usage_date.month:02d}"
 
     try:
         await db_session.execute(
-            insert(SessionUsage).values(
+            insert(SessionUsage)
+            .values(
                 session_id=session_id,
                 user_id=user_id,
                 usage_date=usage_date,
@@ -50,6 +52,24 @@ async def track_usage(
                 total_cost=total_cost,
                 currency=currency,
                 created_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=[
+                    SessionUsage.session_id,
+                    SessionUsage.user_id,
+                    SessionUsage.usage_date,
+                    SessionUsage.model_id,
+                ],
+                set_={
+                    "provider": provider,
+                    "prompt_tokens": SessionUsage.prompt_tokens + prompt_tokens,
+                    "completion_tokens": SessionUsage.completion_tokens + completion_tokens,
+                    "total_tokens": SessionUsage.total_tokens + total_tokens,
+                    "input_cost": SessionUsage.input_cost + input_cost,
+                    "output_cost": SessionUsage.output_cost + output_cost,
+                    "total_cost": SessionUsage.total_cost + total_cost,
+                    "currency": currency,
+                },
             )
         )
 

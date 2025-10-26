@@ -16,6 +16,15 @@ class Base(DeclarativeBase):
 
 class SessionUsage(Base):
     __tablename__ = "session_usage"
+    __table_args__ = (
+        UniqueConstraint(
+            "session_id",
+            "user_id",
+            "usage_date",
+            "model_id",
+            name="uq_session_user_date_model",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String, index=True)
