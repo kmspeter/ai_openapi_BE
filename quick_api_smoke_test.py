@@ -122,8 +122,13 @@ def test_chat_all_providers(tester: ApiSmokeTester, session_id: str) -> None:
         "claude-3-7-sonnet-20250219", # Anthropic
         "gemini-2.5-flash",         # Google
     ]
+    expected_providers = {
+        "gpt-3.5-turbo": "openai",
+        "claude-3-7-sonnet-20250219": "anthropic",
+        "gemini-2.5-flash": "google",
+    }
 
-    any_success = False
+    successful_models = []
     for mid in models:
         body = build_provider_body(mid, session_id)
         print(f"\n>>> Testing chat with model={mid} ...")
@@ -132,10 +137,29 @@ def test_chat_all_providers(tester: ApiSmokeTester, session_id: str) -> None:
             required_keys = {"id", "model", "provider", "content", "usage", "cost", "created_at"}
             if not isinstance(payload, dict) or required_keys - set(payload):
                 raise AssertionError("chat 응답 스키마 불일치")
+
+            provider = payload.get("provider")
+            if provider != expected_providers.get(mid):
+                raise AssertionError(
+                    f"chat 응답 provider 불일치 (model={mid}, expected={expected_providers.get(mid)}, actual={provider})"
+                )
+
+            usage = payload.get("usage")
+            if not isinstance(usage, dict) or {"prompt_tokens", "completion_tokens", "total_tokens"} - set(usage):
+                raise AssertionError("usage 필드가 누락되었습니다.")
+            try:
+                prompt_tokens = int(usage.get("prompt_tokens"))
+                completion_tokens = int(usage.get("completion_tokens"))
+                total_tokens = int(usage.get("total_tokens"))
+            except (TypeError, ValueError):
+                raise AssertionError("usage 토큰 값이 숫자가 아닙니다.")
+            if total_tokens != prompt_tokens + completion_tokens:
+                raise AssertionError("토큰 합계(total_tokens) 계산 오류")
+
             tester.pretty(f"Chat Completion ({mid})", payload)
             print("Model reply:", payload.get("content"))
-            print(f"✅ Chat test passed with model={mid}")
-            any_success = True
+            print(f"✅ Chat test passed with model={mid} ({provider})")
+            successful_models.append(mid)
         except requests.HTTPError as exc:
             resp = getattr(exc, "response", None)
             if resp is not None:
@@ -154,8 +178,57 @@ def test_chat_all_providers(tester: ApiSmokeTester, session_id: str) -> None:
             print(f"❌ Unexpected error for {mid}: {e}")
             continue
 
-    if not any_success:
+    if successful_models:
+        test_usage_for_session(tester, session_id, successful_models, expected_providers)
+    else:
         print("⚠️  All chat providers failed or quota reached.")
+
+
+def test_usage_for_session(
+    tester: ApiSmokeTester,
+    session_id: str,
+    successful_models: Iterable[str],
+    expected_providers: Dict[str, str],
+) -> None:
+    print(f"\n>>> Fetching usage for session={session_id} ...")
+    try:
+        payload = tester.call("GET", f"/api/usage/session/{session_id}")
+    except requests.HTTPError as exc:
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = resp.text
+            print(f"❌ Failed to fetch usage: status={resp.status_code}, detail={detail}")
+        else:
+            print(f"❌ Failed to fetch usage: {exc}")
+        return
+
+    required_keys = {"session_id", "records", "totals", "total_cost"}
+    if not isinstance(payload, dict) or required_keys - set(payload):
+        raise AssertionError("session usage 응답 스키마 불일치")
+
+    records = payload.get("records", [])
+    providers_in_records = {record.get("provider") for record in records if isinstance(record, dict)}
+    expected_provider_values = {expected_providers[mid] for mid in successful_models}
+    if not expected_provider_values.issubset(providers_in_records):
+        raise AssertionError("session usage에 모든 프로바이더 기록이 존재하지 않습니다.")
+
+    totals = payload.get("totals", {})
+    if not isinstance(totals, dict) or {"prompt_tokens", "completion_tokens", "total_tokens"} - set(totals):
+        raise AssertionError("session usage totals 필드가 누락되었습니다.")
+    try:
+        totals_prompt = int(totals.get("prompt_tokens"))
+        totals_completion = int(totals.get("completion_tokens"))
+        totals_total = int(totals.get("total_tokens"))
+    except (TypeError, ValueError):
+        raise AssertionError("session usage totals 토큰 값이 숫자가 아닙니다.")
+    if totals_total != totals_prompt + totals_completion:
+        raise AssertionError("session usage totals 토큰 합계 불일치")
+
+    tester.pretty("Session Usage", payload)
+    print("✅ Session usage lookup succeeded")
 
 
 # -------------------------------
