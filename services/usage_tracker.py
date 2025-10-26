@@ -39,6 +39,7 @@ async def track_usage(
             insert(SessionUsage).values(
                 session_id=session_id,
                 user_id=user_id,
+                usage_date=usage_date,
                 provider=provider,
                 model_id=model_id,
                 prompt_tokens=prompt_tokens,
@@ -138,6 +139,29 @@ async def get_daily_usage(
     if user_id:
         stmt = stmt.where(DailyUsage.user_id == user_id)
     stmt = stmt.order_by(DailyUsage.date.desc(), DailyUsage.provider, DailyUsage.model_id)
+    result = await db_session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_user_daily_usage(
+    db_session: AsyncSession,
+    *,
+    user_id: str,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    provider: Optional[str] = None,
+    model_id: Optional[str] = None,
+) -> list[DailyUsage]:
+    stmt = select(DailyUsage).where(DailyUsage.user_id == user_id)
+    if start_date:
+        stmt = stmt.where(DailyUsage.date >= start_date)
+    if end_date:
+        stmt = stmt.where(DailyUsage.date <= end_date)
+    if provider:
+        stmt = stmt.where(DailyUsage.provider == provider)
+    if model_id:
+        stmt = stmt.where(DailyUsage.model_id == model_id)
+    stmt = stmt.order_by(DailyUsage.date.desc(), DailyUsage.model_id, DailyUsage.provider)
     result = await db_session.execute(stmt)
     return list(result.scalars().all())
 
