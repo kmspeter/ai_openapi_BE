@@ -117,6 +117,15 @@ class MonthlyUsageResponse(AggregatedUsage):
     year_month: str
 
 
+class UserUsageHistoryResponse(BaseModel):
+    user_id: Optional[str]
+    totals: UsageBreakdown
+    total_cost: float
+    daily: List[DailyUsageResponse]
+    monthly: List[MonthlyUsageResponse]
+    sessions: List[SessionUsageRecord]
+
+
 class UsageQueryParams(BaseModel):
     provider: Optional[str] = None
     model_id: Optional[str] = None

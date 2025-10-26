@@ -149,18 +149,21 @@ async def get_daily_usage(
     model_id: Optional[str] = None,
     user_id: Optional[str] = None,
 ) -> list[DailyUsage]:
-    stmt = select(DailyUsage)
     if usage_date is not None:
-        stmt = stmt.where(DailyUsage.date == usage_date)
-    if provider:
-        stmt = stmt.where(DailyUsage.provider == provider)
-    if model_id:
-        stmt = stmt.where(DailyUsage.model_id == model_id)
-    if user_id:
-        stmt = stmt.where(DailyUsage.user_id == user_id)
-    stmt = stmt.order_by(DailyUsage.date.desc(), DailyUsage.provider, DailyUsage.model_id)
-    result = await db_session.execute(stmt)
-    return list(result.scalars().all())
+        return await get_all_users_daily_usage(
+            db_session,
+            start_date=usage_date,
+            end_date=usage_date,
+            provider=provider,
+            model_id=model_id,
+            user_id=user_id,
+        )
+    return await get_all_users_daily_usage(
+        db_session,
+        provider=provider,
+        model_id=model_id,
+        user_id=user_id,
+    )
 
 
 async def get_user_daily_usage(
@@ -172,7 +175,26 @@ async def get_user_daily_usage(
     provider: Optional[str] = None,
     model_id: Optional[str] = None,
 ) -> list[DailyUsage]:
-    stmt = select(DailyUsage).where(DailyUsage.user_id == user_id)
+    return await get_all_users_daily_usage(
+        db_session,
+        start_date=start_date,
+        end_date=end_date,
+        provider=provider,
+        model_id=model_id,
+        user_id=user_id,
+    )
+
+
+async def get_all_users_daily_usage(
+    db_session: AsyncSession,
+    *,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    provider: Optional[str] = None,
+    model_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> list[DailyUsage]:
+    stmt = select(DailyUsage)
     if start_date:
         stmt = stmt.where(DailyUsage.date >= start_date)
     if end_date:
@@ -181,7 +203,42 @@ async def get_user_daily_usage(
         stmt = stmt.where(DailyUsage.provider == provider)
     if model_id:
         stmt = stmt.where(DailyUsage.model_id == model_id)
-    stmt = stmt.order_by(DailyUsage.date.desc(), DailyUsage.model_id, DailyUsage.provider)
+    if user_id:
+        stmt = stmt.where(DailyUsage.user_id == user_id)
+    stmt = stmt.order_by(
+        DailyUsage.date.desc(),
+        DailyUsage.user_id,
+        DailyUsage.model_id,
+        DailyUsage.provider,
+    )
+    result = await db_session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_user_session_usage(
+    db_session: AsyncSession,
+    *,
+    user_id: str,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    provider: Optional[str] = None,
+    model_id: Optional[str] = None,
+) -> list[SessionUsage]:
+    stmt = select(SessionUsage).where(SessionUsage.user_id == user_id)
+    if start_date:
+        stmt = stmt.where(SessionUsage.usage_date >= start_date)
+    if end_date:
+        stmt = stmt.where(SessionUsage.usage_date <= end_date)
+    if provider:
+        stmt = stmt.where(SessionUsage.provider == provider)
+    if model_id:
+        stmt = stmt.where(SessionUsage.model_id == model_id)
+    stmt = stmt.order_by(
+        SessionUsage.usage_date.desc(),
+        SessionUsage.session_id,
+        SessionUsage.model_id,
+        SessionUsage.provider,
+    )
     result = await db_session.execute(stmt)
     return list(result.scalars().all())
 
