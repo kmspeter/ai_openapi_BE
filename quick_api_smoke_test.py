@@ -206,7 +206,7 @@ def test_usage_for_user(
         params["model_id"] = model_id
 
     try:
-        payload = tester.call("GET", f"/usage/user/{user_id}", params=params)
+        payload = tester.call("GET", f"/api/usage/user/{user_id}", params=params)
     except requests.HTTPError as exc:
         resp = getattr(exc, "response", None)
         if resp is not None:
@@ -246,7 +246,7 @@ def test_full_usage_for_user(tester: ApiSmokeTester, user_id: str) -> None:
     print(f"\n>>> Fetching full usage history for user={user_id} ...")
 
     try:
-        payload = tester.call("GET", f"/usage/user/{user_id}/all")
+        payload = tester.call("GET", f"/api/usage/user/{user_id}/all")
     except requests.HTTPError as exc:
         resp = getattr(exc, "response", None)
         if resp is not None:
