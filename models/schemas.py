@@ -113,6 +113,10 @@ class DailyUsageResponse(AggregatedUsage):
     date: date
 
 
+class UserDailyUsageResponse(DailyUsageResponse):
+    user_id: Optional[str]
+
+
 class MonthlyUsageResponse(AggregatedUsage):
     year_month: str
 

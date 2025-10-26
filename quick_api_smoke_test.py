@@ -241,6 +241,62 @@ def test_usage_for_user(
     print(f"✅ User daily usage lookup succeeded for user={user_id}")
 
 
+def test_usage_for_all_users(
+    tester: ApiSmokeTester,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    provider: Optional[str] = None,
+    model_id: Optional[str] = None,
+) -> None:
+    """전체 사용자 일별 사용량 조회 테스트"""
+    print("\n>>> Fetching usage for all users ...")
+
+    params: Dict[str, Any] = {}
+    if start_date:
+        params["start_date"] = start_date
+    if end_date:
+        params["end_date"] = end_date
+    if provider:
+        params["provider"] = provider
+    if model_id:
+        params["model_id"] = model_id
+
+    try:
+        payload = tester.call("GET", "/usage/users", params=params)
+    except requests.HTTPError as exc:
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = resp.text
+            print(f"❌ Failed to fetch all user usage: status={resp.status_code}, detail={detail}")
+        else:
+            print(f"❌ Failed to fetch all user usage: {exc}")
+        return
+
+    if not isinstance(payload, list):
+        raise AssertionError("all users usage 응답은 리스트 형식이어야 합니다.")
+
+    required_keys = {
+        "user_id",
+        "date",
+        "provider",
+        "model_id",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "total_cost",
+        "request_count",
+    }
+    for i, record in enumerate(payload):
+        if not isinstance(record, dict) or required_keys - set(record):
+            raise AssertionError(f"전체 사용자 레코드 #{i}의 스키마 불일치: {record}")
+
+    tester.pretty("All Users Daily Usage", payload)
+    print("✅ All users daily usage lookup succeeded")
+
+
 # -------------------------------
 # 실행 진입점
 # -------------------------------
@@ -251,6 +307,13 @@ TEST_REGISTRY: Dict[str, Callable[[ApiSmokeTester, argparse.Namespace], None]] =
     "user": lambda tester, args: test_usage_for_user(
         tester,
         user_id=args.user_id,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        provider=args.provider,
+        model_id=args.model_id,
+    ),
+    "users": lambda tester, args: test_usage_for_all_users(
+        tester,
         start_date=args.start_date,
         end_date=args.end_date,
         provider=args.provider,
@@ -278,8 +341,8 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "tests",
         nargs="*",
-        choices=["health", "chat", "user"],
-        help="Specific tests to run (default: all: health, chat, user)",
+        choices=["health", "chat", "user", "users"],
+        help="Specific tests to run (default: all: health, chat, user, users)",
     )
     return parser.parse_args(argv)
 
@@ -302,7 +365,7 @@ def main() -> None:
 
     print("Running smoke tests against", config.base_url)
 
-    tests_to_run = args.tests if args.tests else ["health", "chat", "user"]
+    tests_to_run = args.tests if args.tests else ["health", "chat", "user", "users"]
 
     for test_name in tests_to_run:
         print(f"\n>>> Running {test_name}...")

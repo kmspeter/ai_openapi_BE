@@ -12,6 +12,7 @@ from models.schemas import (
     SessionUsageRecord,
     SessionUsageResponse,
     UsageBreakdown,
+    UserDailyUsageResponse,
 )
 from services import usage_tracker
 
@@ -79,6 +80,49 @@ async def get_user_daily_usage(
 
     return [
         DailyUsageResponse(
+            date=entry.date,
+            provider=entry.provider,
+            model_id=entry.model_id,
+            prompt_tokens=entry.prompt_tokens,
+            completion_tokens=entry.completion_tokens,
+            total_tokens=entry.total_tokens,
+            total_cost=round(entry.total_cost, 6),
+            request_count=entry.request_count,
+        )
+        for entry in entries
+    ]
+
+
+@router.get("/users", response_model=List[UserDailyUsageResponse])
+async def get_all_users_daily_usage(
+    start_date: Optional[date] = Query(default=None),
+    end_date: Optional[date] = Query(default=None),
+    provider: Optional[str] = Query(default=None),
+    model_id: Optional[str] = Query(default=None),
+    user_id: Optional[str] = Query(default=None),
+) -> List[UserDailyUsageResponse]:
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date must be before or equal to end_date",
+        )
+
+    async with async_session_factory() as session:
+        entries = await usage_tracker.get_all_users_daily_usage(
+            session,
+            start_date=start_date,
+            end_date=end_date,
+            provider=provider,
+            model_id=model_id,
+            user_id=user_id,
+        )
+
+    if not entries:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usage not found")
+
+    return [
+        UserDailyUsageResponse(
+            user_id=entry.user_id,
             date=entry.date,
             provider=entry.provider,
             model_id=entry.model_id,
