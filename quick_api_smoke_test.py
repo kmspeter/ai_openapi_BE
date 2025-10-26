@@ -1,6 +1,6 @@
 """Simple smoke test suite for the AI Gateway REST API.
 
-Runs minimal tests (health + chat) to verify that a running gateway instance is healthy.
+Runs minimal tests (health + chat + user) to verify that a running gateway instance is healthy.
 """
 from __future__ import annotations
 
@@ -118,9 +118,9 @@ def test_health(tester: ApiSmokeTester) -> None:
 
 def test_chat_all_providers(tester: ApiSmokeTester, session_id: str) -> None:
     models = [
-        "gpt-3.5-turbo",            # OpenAI
+        "gpt-3.5-turbo",              # OpenAI
         "claude-3-7-sonnet-20250219", # Anthropic
-        "gemini-2.5-flash",         # Google
+        "gemini-2.5-flash",           # Google
     ]
     expected_providers = {
         "gpt-3.5-turbo": "openai",
@@ -179,20 +179,34 @@ def test_chat_all_providers(tester: ApiSmokeTester, session_id: str) -> None:
             continue
 
     if successful_models:
-        test_usage_for_session(tester, session_id, successful_models, expected_providers)
+        print(f"✅ Chat tests passed for: {', '.join(successful_models)}")
     else:
         print("⚠️  All chat providers failed or quota reached.")
 
 
-def test_usage_for_session(
+def test_usage_for_user(
     tester: ApiSmokeTester,
-    session_id: str,
-    successful_models: Iterable[str],
-    expected_providers: Dict[str, str],
+    user_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    provider: Optional[str] = None,
+    model_id: Optional[str] = None,
 ) -> None:
-    print(f"\n>>> Fetching usage for session={session_id} ...")
+    """유저별 일일 사용량 조회 테스트"""
+    print(f"\n>>> Fetching usage for user={user_id} ...")
+
+    params: Dict[str, Any] = {}
+    if start_date:
+        params["start_date"] = start_date
+    if end_date:
+        params["end_date"] = end_date
+    if provider:
+        params["provider"] = provider
+    if model_id:
+        params["model_id"] = model_id
+
     try:
-        payload = tester.call("GET", f"/api/usage/session/{session_id}")
+        payload = tester.call("GET", f"/usage/user/{user_id}", params=params)
     except requests.HTTPError as exc:
         resp = getattr(exc, "response", None)
         if resp is not None:
@@ -200,35 +214,31 @@ def test_usage_for_session(
                 detail = resp.json()
             except Exception:
                 detail = resp.text
-            print(f"❌ Failed to fetch usage: status={resp.status_code}, detail={detail}")
+            print(f"❌ Failed to fetch user usage: status={resp.status_code}, detail={detail}")
         else:
-            print(f"❌ Failed to fetch usage: {exc}")
+            print(f"❌ Failed to fetch user usage: {exc}")
         return
 
-    required_keys = {"session_id", "records", "totals", "total_cost"}
-    if not isinstance(payload, dict) or required_keys - set(payload):
-        raise AssertionError("session usage 응답 스키마 불일치")
+    if not isinstance(payload, list):
+        raise AssertionError("user usage 응답은 리스트 형식이어야 합니다.")
 
-    records = payload.get("records", [])
-    providers_in_records = {record.get("provider") for record in records if isinstance(record, dict)}
-    expected_provider_values = {expected_providers[mid] for mid in successful_models}
-    if not expected_provider_values.issubset(providers_in_records):
-        raise AssertionError("session usage에 모든 프로바이더 기록이 존재하지 않습니다.")
+    # 스키마 검증
+    required_keys = {
+        "date",
+        "provider",
+        "model_id",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "total_cost",
+        "request_count",
+    }
+    for i, record in enumerate(payload):
+        if not isinstance(record, dict) or required_keys - set(record):
+            raise AssertionError(f"레코드 #{i}의 스키마 불일치: {record}")
 
-    totals = payload.get("totals", {})
-    if not isinstance(totals, dict) or {"prompt_tokens", "completion_tokens", "total_tokens"} - set(totals):
-        raise AssertionError("session usage totals 필드가 누락되었습니다.")
-    try:
-        totals_prompt = int(totals.get("prompt_tokens"))
-        totals_completion = int(totals.get("completion_tokens"))
-        totals_total = int(totals.get("total_tokens"))
-    except (TypeError, ValueError):
-        raise AssertionError("session usage totals 토큰 값이 숫자가 아닙니다.")
-    if totals_total != totals_prompt + totals_completion:
-        raise AssertionError("session usage totals 토큰 합계 불일치")
-
-    tester.pretty("Session Usage", payload)
-    print("✅ Session usage lookup succeeded")
+    tester.pretty("User Daily Usage", payload)
+    print(f"✅ User daily usage lookup succeeded for user={user_id}")
 
 
 # -------------------------------
@@ -238,16 +248,39 @@ def test_usage_for_session(
 TEST_REGISTRY: Dict[str, Callable[[ApiSmokeTester, argparse.Namespace], None]] = {
     "health": lambda tester, args: test_health(tester),
     "chat": lambda tester, args: test_chat_all_providers(tester, session_id=args.session_id),
+    "user": lambda tester, args: test_usage_for_user(
+        tester,
+        user_id=args.user_id,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        provider=args.provider,
+        model_id=args.model_id,
+    ),
 }
 
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run minimal smoke tests (health + chat)")
+    parser = argparse.ArgumentParser(description="Run minimal smoke tests (health + chat + user)")
     parser.add_argument("--base-url", default=None, help=f"Gateway base URL (default: ${BASE_URL_ENV})")
     parser.add_argument("--api-key", default=None, help=f"Gateway API key (default: ${API_KEY_ENV})")
     parser.add_argument("--timeout", type=int, default=None, help=f"HTTP timeout (default: {DEFAULT_TIMEOUT})")
+
+    # chat용
     parser.add_argument("--session-id", default="test-session-123", help="Session ID for chat tests")
-    parser.add_argument("tests", nargs="*", choices=["health", "chat"], help="Specific tests to run (default: both)")
+
+    # user용
+    parser.add_argument("--user-id", default="tester", help="User ID for user usage test")
+    parser.add_argument("--start-date", default=None, help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end-date", default=None, help="End date (YYYY-MM-DD)")
+    parser.add_argument("--provider", default=None, help="Filter by provider (openai/anthropic/google)")
+    parser.add_argument("--model-id", default=None, help="Filter by model ID")
+
+    parser.add_argument(
+        "tests",
+        nargs="*",
+        choices=["health", "chat", "user"],
+        help="Specific tests to run (default: all: health, chat, user)",
+    )
     return parser.parse_args(argv)
 
 
@@ -269,7 +302,7 @@ def main() -> None:
 
     print("Running smoke tests against", config.base_url)
 
-    tests_to_run = args.tests if args.tests else ["health", "chat"]
+    tests_to_run = args.tests if args.tests else ["health", "chat", "user"]
 
     for test_name in tests_to_run:
         print(f"\n>>> Running {test_name}...")
@@ -279,7 +312,7 @@ def main() -> None:
             print(f"⚠️  Test '{test_name}' encountered an error: {exc}")
             print("Continuing...")
 
-    print("\n✅ Smoke tests completed (health + chat).")
+    print("\n✅ Smoke tests completed.")
 
 
 if __name__ == "__main__":
