@@ -113,12 +113,17 @@ class DailyUsageResponse(AggregatedUsage):
     date: date
 
 
-class UserDailyUsageResponse(DailyUsageResponse):
-    user_id: Optional[str]
-
-
 class MonthlyUsageResponse(AggregatedUsage):
     year_month: str
+
+
+class UserUsageHistoryResponse(BaseModel):
+    user_id: Optional[str]
+    totals: UsageBreakdown
+    total_cost: float
+    daily: List[DailyUsageResponse]
+    monthly: List[MonthlyUsageResponse]
+    sessions: List[SessionUsageRecord]
 
 
 class UsageQueryParams(BaseModel):

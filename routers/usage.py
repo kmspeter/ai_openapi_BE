@@ -12,7 +12,7 @@ from models.schemas import (
     SessionUsageRecord,
     SessionUsageResponse,
     UsageBreakdown,
-    UserDailyUsageResponse,
+    UserUsageHistoryResponse,
 )
 from services import usage_tracker
 
@@ -93,47 +93,73 @@ async def get_user_daily_usage(
     ]
 
 
-@router.get("/users", response_model=List[UserDailyUsageResponse])
-async def get_all_users_daily_usage(
-    start_date: Optional[date] = Query(default=None),
-    end_date: Optional[date] = Query(default=None),
-    provider: Optional[str] = Query(default=None),
-    model_id: Optional[str] = Query(default=None),
-    user_id: Optional[str] = Query(default=None),
-) -> List[UserDailyUsageResponse]:
-    if start_date and end_date and start_date > end_date:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="start_date must be before or equal to end_date",
-        )
-
+@router.get("/user/{user_id}/all", response_model=UserUsageHistoryResponse)
+async def get_full_user_usage(user_id: str) -> UserUsageHistoryResponse:
     async with async_session_factory() as session:
-        entries = await usage_tracker.get_all_users_daily_usage(
-            session,
-            start_date=start_date,
-            end_date=end_date,
-            provider=provider,
-            model_id=model_id,
-            user_id=user_id,
-        )
+        daily_entries = await usage_tracker.get_user_daily_usage(session, user_id=user_id)
+        monthly_entries = await usage_tracker.get_monthly_usage(session, user_id=user_id)
+        session_entries = await usage_tracker.get_user_session_usage(session, user_id=user_id)
 
-    if not entries:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usage not found")
+    if not daily_entries and not monthly_entries and not session_entries:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User usage not found")
 
-    return [
-        UserDailyUsageResponse(
-            user_id=entry.user_id,
-            date=entry.date,
-            provider=entry.provider,
-            model_id=entry.model_id,
-            prompt_tokens=entry.prompt_tokens,
-            completion_tokens=entry.completion_tokens,
-            total_tokens=entry.total_tokens,
-            total_cost=round(entry.total_cost, 6),
-            request_count=entry.request_count,
-        )
-        for entry in entries
-    ]
+    totals = UsageBreakdown(
+        prompt_tokens=sum(entry.prompt_tokens for entry in daily_entries),
+        completion_tokens=sum(entry.completion_tokens for entry in daily_entries),
+        total_tokens=sum(entry.total_tokens for entry in daily_entries),
+    )
+
+    total_cost = round(sum(entry.total_cost for entry in daily_entries), 6)
+
+    return UserUsageHistoryResponse(
+        user_id=user_id,
+        totals=totals,
+        total_cost=total_cost,
+        daily=[
+            DailyUsageResponse(
+                date=entry.date,
+                provider=entry.provider,
+                model_id=entry.model_id,
+                prompt_tokens=entry.prompt_tokens,
+                completion_tokens=entry.completion_tokens,
+                total_tokens=entry.total_tokens,
+                total_cost=round(entry.total_cost, 6),
+                request_count=entry.request_count,
+            )
+            for entry in daily_entries
+        ],
+        monthly=[
+            MonthlyUsageResponse(
+                year_month=entry.year_month,
+                provider=entry.provider,
+                model_id=entry.model_id,
+                prompt_tokens=entry.prompt_tokens,
+                completion_tokens=entry.completion_tokens,
+                total_tokens=entry.total_tokens,
+                total_cost=round(entry.total_cost, 6),
+                request_count=entry.request_count,
+            )
+            for entry in monthly_entries
+        ],
+        sessions=[
+            SessionUsageRecord(
+                session_id=entry.session_id,
+                user_id=entry.user_id,
+                usage_date=entry.usage_date,
+                provider=entry.provider,
+                model_id=entry.model_id,
+                prompt_tokens=entry.prompt_tokens,
+                completion_tokens=entry.completion_tokens,
+                total_tokens=entry.total_tokens,
+                input_cost=entry.input_cost,
+                output_cost=entry.output_cost,
+                total_cost=entry.total_cost,
+                currency=entry.currency,
+                created_at=entry.created_at,
+            )
+            for entry in session_entries
+        ],
+    )
 
 
 @router.get("/daily", response_model=List[DailyUsageResponse])

@@ -215,6 +215,34 @@ async def get_all_users_daily_usage(
     return list(result.scalars().all())
 
 
+async def get_user_session_usage(
+    db_session: AsyncSession,
+    *,
+    user_id: str,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    provider: Optional[str] = None,
+    model_id: Optional[str] = None,
+) -> list[SessionUsage]:
+    stmt = select(SessionUsage).where(SessionUsage.user_id == user_id)
+    if start_date:
+        stmt = stmt.where(SessionUsage.usage_date >= start_date)
+    if end_date:
+        stmt = stmt.where(SessionUsage.usage_date <= end_date)
+    if provider:
+        stmt = stmt.where(SessionUsage.provider == provider)
+    if model_id:
+        stmt = stmt.where(SessionUsage.model_id == model_id)
+    stmt = stmt.order_by(
+        SessionUsage.usage_date.desc(),
+        SessionUsage.session_id,
+        SessionUsage.model_id,
+        SessionUsage.provider,
+    )
+    result = await db_session.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def get_monthly_usage(
     db_session: AsyncSession,
     *,
